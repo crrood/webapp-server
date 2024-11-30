@@ -61,79 +61,112 @@ def query_document_by_id(collection: str, id: str) -> Response:
     Returns:
     (Response): JSON dump of document OR error string
     """
+    logging.info("query_document_by_id")
+
     client = get_collection(collection)
     try:
         object_id = convert_to_oid(id)
     except:
         response = f"Could not convert {id} to ObjectId"
-        result_code = 422
-        return make_response(response, result_code)
+        status_code = 422
+        return make_response(response, status_code)
 
     data = client.find_one({"_id": object_id})
-    logging.info(data)
 
     if data != None:
         response = json.loads(json_util.dumps(data))
-        result_code = 200
+        status_code = 200
     else:
         response = f"id {id} not found in {collection}"
-        result_code = 404
+        status_code = 404
 
-    return make_response(response, result_code)
+    logging.info(data)
+    return make_response(response, status_code)
 
 
-def upsert_document(collection: str, data: dict, query: dict = None) -> Response:
-    """Upsert a document in the database
+def upsert_document(collection: str, data: dict) -> Response:
+    """Upsert a document in the database.
+    Replaces the document completely if it exists.
 
     Parameters:
     collection (string): Name of the db collection
     data (dict): JSON document to be upserted
-    query (mongoQuery, optional): Query to find document to replace
 
     Returns:
     (Response): Status message
     """
-    # mongo throws an error if incoming data attempts to update the immutable _id field
+    if (
+        "_id" in data
+        and query_document_by_id(collection, data["_id"]).status_code == 200
+    ):
+        return update_document(collection, data)
+    else:
+        return insert_document(collection, data)
+
+
+def update_document(collection: str, data: dict) -> Response:
+    """Update a document in the database. Throws an error if it
+    doesn't already exist.
+
+    Parameters:
+    collection (string): Name of the db collection
+    data (dict): JSON document to be updated
+
+    Returns:
+    (Response): Status message
+    """
+    logging.info("update_document")
     logging.info(data)
-    data.pop("_id", None)
+
+    id = data.pop("_id", None)
     client = get_collection(collection)
 
-    if query is not None:
-        result = client.replace_one(query, data, upsert=True)
-        logging.info(result.raw_result)
-        if result.modified_count > 0:
-            response = f"updated document"
-        else:
-            response = str(result.upserted_id)
-
-        result_code = 200
-    else:
-        result = client.insert_one(data)
-        response = str(result.inserted_id)
-        result_code = 200
-
-    return make_response(response, result_code)
-
-
-def upsert_document_by_id(collection: str, data: dict, id: str) -> Response:
-    """Upsert a document in the database
-
-    Parameters:
-    collection (string): Name of the db collection
-    data (dict): JSON document to be upserted
-    id (string): ID of the document - must convert to an ObjectId
-
-    Returns:
-    (Response): Status message
-    """
     try:
         object_id = convert_to_oid(id)
     except:
         response = f"Could not convert {id} to ObjectId"
-        result_code = 422
-        return response, result_code
+        status_code = 422
+        return response, status_code
 
-    return upsert_document(collection, data, {"_id": object_id})
+    result = client.replace_one({"_id": object_id}, data)
+
+    if result.matched_count == 1:
+        response = str(id)
+        status_code = 200
+    elif result.matched_count == 0:
+        # upstream error checking should catch this case
+        response = f"id {id} not found in {collection}"
+        status_code = 404
+    elif result.matched_count > 1:
+        response = f"too many documents matched id {id}"
+        status_code = 400
+    elif result.modified_count == 0:
+        response = f"document with id {id} not updated"
+        status_code = 400
+
+    return make_response(response, status_code)
+
+
+def insert_document(collection: str, data: dict) -> Response:
+    """Insert a document into the database
+
+    Parameters:
+    collection (string): Name of the db collection
+    data (dict): JSON document to be inserted
+
+    Returns:
+    (Response): Status message
+    """
+    logging.info("insert_document")
+    logging.info(data)
+
+    client = get_collection(collection)
+    result = client.insert_one(data)
+
+    response = str(result.inserted_id)
+    status_code = 200
+
+    return make_response(response, status_code)
 
 
 def delete_document_by_id(collection: str, id: str) -> Response:
@@ -151,19 +184,19 @@ def delete_document_by_id(collection: str, id: str) -> Response:
         object_id = convert_to_oid(id)
     except:
         response = f"Could not convert {id} to ObjectId"
-        result_code = 422
-        return make_response(response, result_code)
+        status_code = 422
+        return make_response(response, status_code)
 
     result = client.delete_one({"_id": object_id})
 
     if result.deleted_count > 0:
         response = f"deleted document with id {id}"
-        result_code = 200
+        status_code = 200
     else:
         response = f"id {id} not found in {collection}"
-        result_code = 404
+        status_code = 404
 
-    return make_response(response, result_code)
+    return make_response(response, status_code)
 
 
 def reset() -> str:
@@ -185,45 +218,73 @@ def reset() -> str:
 def test_db():
     """Upserts a document, queries the collection, queries the document,
     updates the document, and deletes the document"""
-    test_data = {"name": "test", "value": 42}
-    response = upsert_document("test", test_data)
-    if response.status_code != 200:
-        return f"upsert failed: {response.data}"
-    id = response.data.decode("utf-8")
+    collection = "test_collection"
+    operations = []
 
-    response = query_collection("test", 0)
-    if response.status_code != 200:
-        return f"query collection failed: {response.data}"
-    if len(json.loads(response.data)) == 0:
-        return "query collection failed: no results"
-    if json.loads(response.data)[0]["value"] != 42:
-        return f"query collection failed: wrong data\n{response.data}"
+    try:
+        # insert the document
+        operations.append("insert")
+        test_data = {"name": "test", "value": 42}
+        response = upsert_document(collection, test_data)
+        if response.status_code != 200:
+            return f"upsert failed: {response.data}"
+        id = response.data.decode("utf-8")
 
-    response = query_document_by_id("test", id)
-    if response.status_code != 200:
-        return f"query document failed: {response.data}"
-    if json.loads(response.data)["value"] != 42:
-        return f"query document failed: wrong data\n{response.data}"
+        # query the collection
+        operations.append("query collection")
+        response = query_collection(collection, 0)
+        if response.status_code != 200:
+            return f"query collection failed: {response.data}"
+        if len(json.loads(response.data)) == 0:
+            return "query collection failed: no results"
+        if json.loads(response.data)[0]["value"] != 42:
+            return f"query collection failed: wrong data\n{response.data}"
 
-    response = upsert_document_by_id("test", {"name": "test", "value": 43}, id)
-    if response.status_code != 200:
-        return f"update failed: {response.data}"
-    response = query_document_by_id("test", id)
-    if response.status_code != 200:
-        return f"query document after update failed: {response.data}"
-    if json.loads(response.data)["value"] != 43:
-        return f"query document after update failed: wrong data\n{response.data}"
+        # query the document
+        operations.append("query document")
+        response = query_document_by_id(collection, id)
+        if response.status_code != 200:
+            return f"query document failed: {response.data}"
+        if json.loads(response.data)["value"] != 42:
+            return f"query document failed: wrong data\n{response.data}"
 
-    response = delete_document_by_id("test", id)
-    if response.status_code != 200:
-        return f"delete failed: {response.data}"
-    response = query_document_by_id("test", id)
-    if response.status_code != 404:
-        return f"query document after delete failed: {response.data}"
+        # insert the same document again
+        operations.append("insert again")
+        response = upsert_document(collection, test_data)
+        if response.status_code != 200:
+            return f"upsert failed: {response.data}"
+        if response.data.decode("utf-8") != id:
+            return f"upsert failed: wrong id\n{response.data}"
 
-    get_database().drop_collection("test")
+        # update the document
+        operations.append("update")
+        response = upsert_document(
+            collection, {"name": "test", "value": 43, "_id": convert_to_oid(id)}
+        )
+        if response.status_code != 200:
+            return f"update failed: {response.data}"
+        response = query_document_by_id(collection, id)
+        if response.status_code != 200:
+            return f"query document after update failed: {response.data}"
+        if json.loads(response.data)["value"] != 43:
+            return f"query document after update failed: wrong data\n{response.data}"
 
-    return "DB test passed"
+        # delete the document
+        operations.append("delete")
+        response = delete_document_by_id(collection, id)
+        if response.status_code != 200:
+            return f"delete failed: {response.data}"
+        response = query_document_by_id(collection, id)
+        if response.status_code != 404:
+            return f"query document after delete failed: {response.data}"
+
+        # clean up
+        operations.append("clean up")
+        get_database().drop_collection(collection)
+
+        return f"DB test passed: {operations}"
+    except Exception as e:
+        return f"DB test failed: {e}\n{operations}"
 
 
 # utility methods
