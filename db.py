@@ -85,8 +85,9 @@ def query_document_by_id(collection: str, id: str) -> Response:
 
 
 def upsert_document(collection: str, data: dict) -> Response:
-    """Upsert a document in the database.
-    Replaces the document completely if it exists.
+    """Upsert a document in the database. Replaces the document completely if it
+    exists. If "_id" is present in the object, assumed to be an update
+    operation. If "_id" is not present, assumed to be an insert operation.
 
     Parameters:
     collection (string): Name of the db collection
@@ -95,11 +96,11 @@ def upsert_document(collection: str, data: dict) -> Response:
     Returns:
     (Response): Status message
     """
-    if (
-        "_id" in data
-        and query_document_by_id(collection, data["_id"]).status_code == 200
-    ):
-        return update_document(collection, data)
+    if "_id" in data:
+        if query_document_by_id(collection, data["_id"]).status_code == 200:
+            return update_document(collection, data)
+        else:
+            return make_response("data had _id but wasn't found in database", 400)
     else:
         return insert_document(collection, data)
 
@@ -289,4 +290,7 @@ def test_db():
 
 # utility methods
 def convert_to_oid(id):
-    return ObjectId(id)
+    if type(id) == dict:
+        return ObjectId(id["$oid"])
+    else:
+        return ObjectId(id)
