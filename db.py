@@ -205,7 +205,7 @@ def reset() -> str:
     client = get_client()
     client.drop_database(DATABASE)
 
-    with open("config/resources.json") as f:
+    with open("/config/resources.json") as f:
         sample_data = json.load(f)
 
     client = get_database()
