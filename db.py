@@ -29,8 +29,8 @@ def get_collection(collection: str) -> MongoClient:
     return client[collection]
 
 
-def query_collection(collection: str, page_number: int) -> Response:
-    """Query n documents from a collection, offset by page_number
+def query_collection(collection: str, page_number: int, query: object = {}) -> Response:
+    """Query ITEMS_PER_PAGE documents from a collection, offset by page_number
 
     Parameters:
     collection (string): Name of the db collection
@@ -42,7 +42,7 @@ def query_collection(collection: str, page_number: int) -> Response:
     client = get_collection(collection)
 
     offset = page_number * ITEMS_PER_PAGE
-    results = client.find(limit=ITEMS_PER_PAGE, skip=offset)
+    results = client.find(limit=ITEMS_PER_PAGE, skip=offset, filter=query)
 
     result_array = []
     for result in results:

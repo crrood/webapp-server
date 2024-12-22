@@ -24,7 +24,12 @@ class ResourceListBase(Resource):
 
     def get(self):
         page_number = request.args.get("page", default=0, type=int)
-        return db.query_collection(self.resource_name, page_number)
+
+        query = request.args.to_dict()
+        if "page" in query:
+            del query["page"]
+
+        return db.query_collection(self.resource_name, page_number, query)
 
     def put(self):
         data = request.get_json()
