@@ -42,10 +42,10 @@ class DB:
         Returns:
         (Response): Body is an array of JSON documents
         """
-        collection = self.__get_collection(collection)
+        client = self.__get_collection(collection)
 
         offset = page_number * DB.ITEMS_PER_PAGE
-        results = collection.find(limit=DB.ITEMS_PER_PAGE, skip=offset, filter=query)
+        results = client.find(limit=DB.ITEMS_PER_PAGE, skip=offset, filter=query)
 
         result_array = []
         for result in results:
@@ -63,9 +63,9 @@ class DB:
         Returns:
         (Response): JSON dump of document OR error string
         """
-        logging.info("self.query_document_by_id")
+        logging.info(f"query_document_by_id in {collection} with id {id}")
 
-        collection = self.__get_collection(collection)
+        client = self.__get_collection(collection)
         try:
             object_id = self.__convert_to_oid(id)
         except:
@@ -73,7 +73,7 @@ class DB:
             status_code = 422
             return make_response(response, status_code)
 
-        data = collection.find_one({"_id": object_id})
+        data = client.find_one({"_id": object_id})
 
         if data != None:
             response = json.loads(json_util.dumps(data))
@@ -97,6 +97,8 @@ class DB:
         Returns:
         (Response): Status message
         """
+        logging.info(f"upsert_document into {collection}")
+        logging.info(data)
         if "_id" in data:
             if self.query_document_by_id(collection, data["_id"]).status_code == 200:
                 return self.__update_document(collection, data)
@@ -116,11 +118,11 @@ class DB:
         Returns:
         (Response): Status message
         """
-        logging.info("self.update_document")
+        logging.info(f"update_document in {collection}")
         logging.info(data)
 
         id = data.pop("_id", None)
-        collection = self.__get_collection(collection)
+        client = self.__get_collection(collection)
 
         try:
             object_id = self.__convert_to_oid(id)
@@ -129,7 +131,7 @@ class DB:
             status_code = 422
             return response, status_code
 
-        result = collection.replace_one({"_id": object_id}, data)
+        result = client.replace_one({"_id": object_id}, data)
 
         if result.matched_count == 1:
             response = str(id)
@@ -157,13 +159,14 @@ class DB:
         Returns:
         (Response): Status message
         """
-        logging.info("self.insert_document")
+        logging.info(f"insert_document in {collection}")
         logging.info(data)
 
-        collection = self.__get_collection(collection)
-        result = collection.insert_one(data)
+        client = self.__get_collection(collection)
+        result = client.insert_one(data)
 
         response = str(result.inserted_id)
+        logging.info(self.query_document_by_id(collection, response).response)
         status_code = 200
 
         return make_response(response, status_code)
@@ -178,7 +181,7 @@ class DB:
         Returns:
         (Response): Status message
         """
-        collection = self.__get_collection(collection)
+        client = self.__get_collection(collection)
         try:
             object_id = self.__convert_to_oid(id)
         except:
@@ -186,7 +189,7 @@ class DB:
             status_code = 422
             return make_response(response, status_code)
 
-        result = collection.delete_one({"_id": object_id})
+        result = client.delete_one({"_id": object_id})
 
         if result.deleted_count > 0:
             response = f"deleted document with id {id}"
@@ -206,7 +209,9 @@ class DB:
 
         for resource in sample_data:
             for i in range(len(sample_data[resource])):
-                result = self.client[resource].insert_one(sample_data[resource][i])
+                result = self.__get_collection(resource).insert_one(
+                    sample_data[resource][i]
+                )
 
         return f"db reset - test resource id = {result.inserted_id}"
 
