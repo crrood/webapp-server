@@ -2,7 +2,7 @@ import json
 import logging
 import os
 
-import db
+from db import DB
 from flask import Flask, request
 from flask_cors import CORS
 from flask_restful import Api
@@ -11,6 +11,7 @@ from resources.ResourceFactory import ResourceFactory, ResourceListFactory
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
 api = Api(app)
+db = DB()
 
 # TODO: restrict resources to front-end container
 CORS(app)
