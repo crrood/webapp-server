@@ -17,7 +17,7 @@ class ResourceBase(Resource):
         return self.db.delete_document_by_id(self.resource_name, resource_id)
 
     # resource_id is just included here to match the method signature of the
-    # other methods
+    # other methods; db.upsert_document uses the _id field in the data
     def put(self, resource_id):
         data = request.get_json()
         return self.db.upsert_document(self.resource_name, data)

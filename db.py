@@ -42,6 +42,7 @@ class DB:
         Returns:
         (Response): Body is an array of JSON documents
         """
+        logging.info(f"query_collection in {collection}")
         client = self.__get_collection(collection)
 
         offset = page_number * DB.ITEMS_PER_PAGE
@@ -51,6 +52,7 @@ class DB:
         for result in results:
             result_array.append(json.loads(json_util.dumps(result)))
 
+        logging.info(result_array)
         return make_response(jsonify(result_array), 200)
 
     def query_document_by_id(self, collection: str, id: str) -> Response:
@@ -127,27 +129,45 @@ class DB:
         try:
             object_id = self.__convert_to_oid(id)
         except:
-            response = f"Could not convert {id} to ObjectId"
+            response_object = {
+                "success": False,
+                "message": f"Could not convert {id} to ObjectId",
+            }
             status_code = 422
-            return response, status_code
+            return make_response(response_object, status_code)
 
         result = client.replace_one({"_id": object_id}, data)
 
         if result.matched_count == 1:
-            response = str(id)
+            response_object = {
+                "success": True,
+                "message": f"updated document with id {id}",
+                "id": str(id),
+                "updatedExisting": True,
+            }
             status_code = 200
         elif result.matched_count == 0:
             # upstream error checking should catch this case
-            response = f"id {id} not found in {collection}"
+            response_object = {
+                "success": False,
+                "message": f"document with id {id} not found",
+            }
             status_code = 404
         elif result.matched_count > 1:
-            response = f"too many documents matched id {id}"
+            response_object = {
+                "success": False,
+                "message": f"too many documents matched id {id}",
+            }
             status_code = 400
         elif result.modified_count == 0:
-            response = f"document with id {id} not updated"
+            response_object = {
+                "success": False,
+                "message": f"document with id {id} not updated",
+            }
             status_code = 400
 
-        return make_response(response, status_code)
+        logging.info(response_object)
+        return make_response(response_object, status_code)
 
     def __insert_document(self, collection: str, data: dict) -> Response:
         """Insert a document into the database.
@@ -165,11 +185,16 @@ class DB:
         client = self.__get_collection(collection)
         result = client.insert_one(data)
 
-        response = str(result.inserted_id)
-        logging.info(self.query_document_by_id(collection, response).response)
+        response_object = {
+            "success": True,
+            "message": "inserted document",
+            "id": str(result.inserted_id),
+            "updatedExisting": False,
+        }
         status_code = 200
 
-        return make_response(response, status_code)
+        logging.info(response_object)
+        return make_response(response_object, status_code)
 
     def delete_document_by_id(self, collection: str, id: str) -> Response:
         """Delete a document from the database
@@ -181,24 +206,37 @@ class DB:
         Returns:
         (Response): Status message
         """
+        logging.info(f"delete_document_by_id in {collection} with id {id}")
+
         client = self.__get_collection(collection)
         try:
             object_id = self.__convert_to_oid(id)
         except:
-            response = f"Could not convert {id} to ObjectId"
+            response_object = {
+                "success": False,
+                "message": f"Could not convert {id} to ObjectId",
+            }
             status_code = 422
-            return make_response(response, status_code)
+            return make_response(response_object, status_code)
 
         result = client.delete_one({"_id": object_id})
 
         if result.deleted_count > 0:
-            response = f"deleted document with id {id}"
+            response_object = {
+                "success": True,
+                "message": f"deleted document with id {id}",
+                "id": str(id),
+            }
             status_code = 200
         else:
-            response = f"id {id} not found in {collection}"
+            response_object = {
+                "success": False,
+                "message": f"document with id {id} not found",
+            }
             status_code = 404
 
-        return make_response(response, status_code)
+        logging.info(response_object)
+        return make_response(response_object, status_code)
 
     def reset(self) -> str:
         """Drop the DB and refill with test data from resources.json"""
@@ -228,7 +266,10 @@ class DB:
             response = self.upsert_document(collection, test_data)
             if response.status_code != 200:
                 return f"upsert failed: {response.data}"
-            id = response.data.decode("utf-8")
+            data = json.loads(response.data)
+            if data["success"] != True:
+                return f"upsert failed: {response.data}"
+            id = data["id"]
 
             # query the collection
             operations.append("query collection")
@@ -251,19 +292,30 @@ class DB:
             # insert the same document again
             operations.append("insert again")
             response = self.upsert_document(collection, test_data)
+            data = json.loads(response.data)
             if response.status_code != 200:
                 return f"upsert failed: {response.data}"
-            if response.data.decode("utf-8") != id:
+            if data["success"] != True:
+                return f"upsert failed: {response.data}"
+            if data["id"] != id:
                 return f"upsert failed: wrong id\n{response.data}"
 
             # update the document
             operations.append("update")
+            new_test_data = {
+                "name": "test",
+                "value": 43,
+                "_id": self.__convert_to_oid(id),
+            }
             response = self.upsert_document(
                 collection,
-                {"name": "test", "value": 43, "_id": self.__convert_to_oid(id)},
+                new_test_data,
             )
             if response.status_code != 200:
                 return f"update failed: {response.data}"
+            data = json.loads(response.data)
+            if data["success"] != True:
+                return f"upsert failed: {response.data}"
             response = self.query_document_by_id(collection, id)
             if response.status_code != 200:
                 return f"query document after update failed: {response.data}"
@@ -277,9 +329,13 @@ class DB:
             response = self.delete_document_by_id(collection, id)
             if response.status_code != 200:
                 return f"delete failed: {response.data}"
+            if json.loads(response.data)["id"] != id:
+                return f"delete failed: wrong id\n{response.data}"
             response = self.query_document_by_id(collection, id)
             if response.status_code != 404:
-                return f"query document after delete failed: {response.data}"
+                return (
+                    f"query document after delete failed (succeeded): {response.data}"
+                )
 
             # clean up
             operations.append("clean up")
@@ -287,6 +343,7 @@ class DB:
 
             return f"DB test passed: {operations}"
         except Exception as e:
+            self.__get_database().drop_collection(collection)
             return f"DB test failed: {e}\n{operations}\n{traceback.format_exc()}"
 
     # utility methods
