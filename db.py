@@ -38,11 +38,15 @@ class DB:
         Parameters:
         collection (string): Name of the db collection
         page_number (int): Offset to query from, 0-indexed
+        query (object): Query to filter the results
 
         Returns:
         (Response): Body is an array of JSON documents
         """
         logging.info(f"query_collection in {collection}")
+        if query != {}:
+            logging.info(f"query: {query}")
+        
         client = self.__get_collection(collection)
 
         offset = page_number * DB.ITEMS_PER_PAGE

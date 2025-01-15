@@ -1,4 +1,6 @@
+import json
 import logging
+from urllib.parse import unquote
 
 from db import DB
 from flask import request
@@ -31,11 +33,16 @@ class ResourceListBase(Resource):
     def get(self):
         page_number = request.args.get("page", default=0, type=int)
 
-        query = request.args.to_dict()
-        if "page" in query:
-            del query["page"]
+        args = request.args.to_dict()
+        if "page" in args:
+            del args["page"]
+        
+        if "query" in args:            
+            parsed_query = json.loads(unquote(args["query"]))
+        else:
+            parsed_query = {}
 
-        return self.db.query_collection(self.resource_name, page_number, query)
+        return self.db.query_collection(self.resource_name, page_number, parsed_query)
 
     def put(self):
         data = request.get_json()
