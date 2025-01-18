@@ -47,7 +47,7 @@ def test_db():
 
 
 # nuke all DB entries and replace with test data
-@app.route("/resetDB")
+@app.route("/resetDB", methods=["POST", "PUT", "GET"])
 def reset_db():
     logging.warn("resetting DB")
     return db.reset()

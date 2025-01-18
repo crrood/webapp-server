@@ -46,7 +46,7 @@ class DB:
         logging.info(f"query_collection in {collection}")
         if query != {}:
             logging.info(f"query: {query}")
-        
+
         client = self.__get_collection(collection)
 
         offset = page_number * DB.ITEMS_PER_PAGE
@@ -244,6 +244,7 @@ class DB:
 
     def reset(self) -> str:
         """Drop the DB and refill with test data from resources.json"""
+        logging.info("resetting DB")
         self.client.drop_database(DB.DATABASE)
 
         with open("/config/resources.json") as f:
@@ -255,7 +256,8 @@ class DB:
                     sample_data[resource][i]
                 )
 
-        return f"db reset - test resource id = {result.inserted_id}"
+        response_object = {"success": True, "message": str(result.inserted_id)}
+        return make_response(response_object, 200)
 
     def test_db(self):
         """Upserts a document, queries the collection, queries the document,
